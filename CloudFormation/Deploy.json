@@ -1,0 +1,176 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Software Engineer for Cloud Project 2",
+    "Parameters": {
+        "ApplicationName": {
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+            "Type": "String",
+            "Default": "anomolydetection"
+        }
+    },
+    "Resources": {
+        "GlKinesisStream": {
+            "Type": "AWS::Kinesis::Stream",
+            "Properties": {
+                "Name": "m03p02_raw_data_stream",
+                "RetentionPeriodHours": 24,
+                "ShardCount": 3,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Gl_Project"
+                    }
+                ]
+            }
+        },
+        "GlDynamoDBTable": {
+            "Type": "AWS::DynamoDB::Table",
+            "Properties": {
+                "KeySchema": [
+                    {
+                        "AttributeName": "deviceid",
+                        "KeyType": "HASH"
+                    },
+                    {
+                        "AttributeName": "anomalyDate",
+                        "KeyType": "RANGE"
+                    }
+                ],
+                "ProvisionedThroughput": {
+                    "ReadCapacityUnits": "5",
+                    "WriteCapacityUnits": "5"
+                },
+                "TableName": "m03p02_anomaly_data",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Gl_Project"
+                    }
+                ]
+            }
+        },
+        "ProjectExecutionRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": "GlProjectRole",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "lambda.amazonaws.com",
+                                    "ec2.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "root",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": "*",
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "GlEventSourceMapping": {
+            "Type": "AWS::Lambda::EventSourceMapping",
+            "Properties": {
+                "EventSourceArn": {
+                    "Fn::GetAtt": [
+                        "GlKinesisStream",
+                        "Arn"
+                    ]
+                },
+                "FunctionName": {
+                    "Fn::GetAtt": [
+                        "GlLambdaHandler",
+                        "Arn"
+                    ]
+                },
+                "StartingPosition": "TRIM_HORIZON"
+            }
+        },
+        "GlSNSTopic": {
+            "Type": "AWS::SNS::Topic",
+            "Properties": {
+                "DisplayName": "GL_Project_SNS",
+                "FifoTopic": false,
+                "Subscription": [
+                    {
+                        "Endpoint": {
+                            "Fn::GetAtt": [
+                                "GlLambdaHandler",
+                                "Arn"
+                            ]
+                        },
+                        "Protocol": "lambda"
+                    }
+                ],
+                "TopicName": "m03p02_anomaly_alerts"
+            }
+        },
+        "GlSNSSubscription": {
+            "Type": "AWS::SNS::Subscription",
+            "Properties": {
+                "Endpoint": "varungupta.v@outlook.com",
+                "Protocol": "email",
+                "TopicArn": {
+                    "Ref": "GlSNSTopic"
+                }
+            }
+        },
+        "GlLambdaHandler": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "FunctionName": {
+                    "Fn::Sub": "${ApplicationName}-lambda"
+                },
+                "PackageType": "Image",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "ProjectExecutionRole",
+                        "Arn"
+                    ]
+                },
+                "Code": {
+                    "ImageUri": "637737936215.dkr.ecr.us-east-1.amazonaws.com/anomolydetection-ecr:latest"
+                },
+                "MemorySize": 1024,
+                "Timeout": 300,
+                "TracingConfig": {
+                    "Mode": "PassThrough"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Gl_Project"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "TableName": {
+            "Value": {
+                "Ref": "GlDynamoDBTable"
+            },
+            "Description": "Table name of the newly created DynamoDB table"
+        }
+    }
+}
